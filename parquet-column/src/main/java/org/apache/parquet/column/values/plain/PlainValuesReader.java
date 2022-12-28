@@ -1,4 +1,4 @@
-/* 
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -20,6 +20,7 @@ package org.apache.parquet.column.values.plain;
 
 import java.io.IOException;
 
+import com.github.jinahya.bit.io.*;
 import org.apache.parquet.bytes.ByteBufferInputStream;
 import org.apache.parquet.bytes.LittleEndianDataInputStream;
 import org.apache.parquet.column.values.ValuesReader;
@@ -54,11 +55,36 @@ abstract public class PlainValuesReader extends ValuesReader {
   }
 
   public static class DoublePlainValuesReader extends PlainValuesReader {
-
+    BitInput bitInput;
+    int bits;
+    long max;
+    long prevValue = 0;
+    @Override
+    public void initFromPage(int valueCount, ByteBufferInputStream stream) throws IOException {
+      LOG.debug("init from page at offset {} for length {}", stream.position(), stream.available());
+      this.in = new LittleEndianDataInputStream(stream.remainingStream());
+      this.bitInput = new DefaultBitInput(new ByteInput() {
+        @Override
+        public int read() throws IOException {
+          return in.read();
+        }
+      });
+      bits = bitInput.readInt(false, 8);
+      max = -1L >>> (64-bits);
+      prevValue = 0L;
+    }
     @Override
     public void skip(int n) {
       try {
-        skipBytesFully(n * 8);
+        for(int i = 0; i < n; i++) {
+          long tmp = bitInput.readLong(true, bits);
+          if(tmp == max) {
+            tmp = bitInput.readLong(false, 64);
+          }
+          tmp = ((tmp >>> 1) ^ -(tmp & 1)) + prevValue;
+          prevValue = tmp;
+        }
+//        skipBytesFully(n * 8);
       } catch (IOException e) {
         throw new ParquetDecodingException("could not skip " + n + " double values", e);
       }
@@ -67,7 +93,19 @@ abstract public class PlainValuesReader extends ValuesReader {
     @Override
     public double readDouble() {
       try {
-        return in.readDouble();
+        long tmp;
+        if(bits == 64) {
+          tmp = bitInput.readLong(false, 64);
+        } else {
+          tmp = bitInput.readLong(true, bits);
+          if(tmp == max) {
+            tmp = bitInput.readLong(false, 64);
+          }
+        }
+
+        tmp = ((tmp >>> 1) ^ -(tmp & 1)) + prevValue;
+        prevValue = tmp;
+        return Double.longBitsToDouble(tmp);
       } catch (IOException e) {
         throw new ParquetDecodingException("could not read double", e);
       }

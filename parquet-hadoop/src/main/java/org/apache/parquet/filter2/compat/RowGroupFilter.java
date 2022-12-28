@@ -92,7 +92,7 @@ public class RowGroupFilter implements Visitor<List<BlockMetaData>> {
     FilterPredicate filterPredicate = filterPredicateCompat.getFilterPredicate();
 
     // check that the schema of the filter matches the schema of the file
-    SchemaCompatibilityValidator.validate(filterPredicate, schema);
+//    SchemaCompatibilityValidator.validate(filterPredicate, schema);
 
     List<BlockMetaData> filteredBlocks = new ArrayList<BlockMetaData>();
 
